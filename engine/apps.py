@@ -11,3 +11,6 @@ class EngineConfig(AppConfig):
         # Import all node modules here so @register_node decorators fire at startup
         import engine.nodes.common      # noqa: F401
         # Later: import engine.nodes.finance, engine.nodes.it, etc.
+        import engine.nodes.finance   # noqa: F401  ← add this line
+      
+       
