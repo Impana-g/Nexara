@@ -7,7 +7,13 @@ urlpatterns = [
     # Health
     path('health/',              views.health_check,          name='health-check'),
 
-    # Auth
+    # Auth — HTML Form Views (pages)
+    path('register/',            views.register_form_view,    name='auth-register-form'),
+    path('login/',               views.login_form_view,       name='auth-login-form'),
+    path('dashboard/',           views.dashboard_view,        name='dashboard'),
+
+    # Auth — API Views (JSON endpoints)
+    path('api/auth/register/',   views.register_view,         name='auth-register'),
     path('api/auth/login/',      views.login_view,            name='auth-login'),
     path('api/auth/logout/',     views.logout_view,           name='auth-logout'),
     path('api/auth/me/',         views.me_view,               name='auth-me'),

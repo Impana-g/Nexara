@@ -36,6 +36,7 @@ class TenantMembershipSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
 
 
+
 class UserSerializer(serializers.ModelSerializer):
     membership = TenantMembershipSerializer(read_only=True)
 
@@ -43,3 +44,33 @@ class UserSerializer(serializers.ModelSerializer):
         model  = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name', 'membership')
         read_only_fields = ('id',)
+
+
+# ─── Registration Serializer ────────────────────────────────────────────────
+class RegistrationSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=150)
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+
+    def validate(self, data):
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+        return data
+
+    def create(self, validated_data):
+        full_name = validated_data['full_name'].strip()
+        first_name, *last_name = full_name.split(' ', 1)
+        user = User.objects.create_user(
+            username=validated_data['email'],
+            email=validated_data['email'],
+            password=validated_data['password'],
+            first_name=first_name,
+            last_name=last_name[0] if last_name else ''
+        )
+        return user

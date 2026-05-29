@@ -1,11 +1,8 @@
-
-
-# Create your models here.
 # engine/models.py
 
 import uuid
 from django.db import models
-from core.models import TenantAwareModel, Tenant
+from core.models import TenantAwareModel, Tenant, SectorChoices
 
 
 # ─── Workflow Template ────────────────────────────────────────────────────────
@@ -20,8 +17,8 @@ class WorkflowTemplate(models.Model):
     version     = models.IntegerField(default=1)
     name        = models.CharField(max_length=255)
     description = models.TextField(blank=True)
-    sector      = models.CharField(max_length=50)        # which sector this belongs to
-    graph_json  = models.JSONField(default=dict)         # LangGraph graph definition
+    sector      = models.CharField(max_length=50, choices=SectorChoices.choices)
+    graph_json  = models.JSONField(default=dict)
     is_active   = models.BooleanField(default=True)
     created_at  = models.DateTimeField(auto_now_add=True)
 
@@ -41,9 +38,9 @@ class TenantWorkflowConfig(TenantAwareModel):
     Per-tenant overrides for a workflow template.
     Allows a tenant to fork graph behaviour without changing the platform default.
     """
-    template    = models.ForeignKey(WorkflowTemplate, on_delete=models.PROTECT)
-    overrides   = models.JSONField(default=dict)         # node-level overrides
-    is_active   = models.BooleanField(default=True)
+    template  = models.ForeignKey(WorkflowTemplate, on_delete=models.PROTECT)
+    overrides = models.JSONField(default=dict)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table        = 'tenant_workflow_configs'
@@ -60,15 +57,15 @@ class Agent(models.Model):
     Named trigger for a workflow.
     e.g. market_data_sync, portfolio_import, change_request_approval
     """
-    code            = models.CharField(max_length=100, unique=True)
-    name            = models.CharField(max_length=255)
-    description     = models.TextField(blank=True)
-    sector          = models.CharField(max_length=50)
+    code              = models.CharField(max_length=100, unique=True)
+    name              = models.CharField(max_length=255)
+    description       = models.TextField(blank=True)
+    sector            = models.CharField(max_length=50, choices=SectorChoices.choices)
     workflow_template = models.ForeignKey(
         WorkflowTemplate, on_delete=models.PROTECT, related_name='agents'
     )
-    is_active       = models.BooleanField(default=True)
-    created_at      = models.DateTimeField(auto_now_add=True)
+    is_active         = models.BooleanField(default=True)
+    created_at        = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'agents'
@@ -96,15 +93,15 @@ class WorkflowRun(TenantAwareModel):
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     agent            = models.ForeignKey(Agent, on_delete=models.PROTECT, null=True, blank=True)
     template         = models.ForeignKey(WorkflowTemplate, on_delete=models.PROTECT)
-    template_version = models.IntegerField()                 # locked at creation
+    template_version = models.IntegerField()
     status           = models.CharField(
                            max_length=30,
                            choices=Status.choices,
                            default=Status.PENDING
                        )
     graph_thread_id  = models.CharField(max_length=255, null=True, blank=True)
-    input_data       = models.JSONField(default=dict)        # trigger input
-    output_data      = models.JSONField(default=dict)        # final output
+    input_data       = models.JSONField(default=dict)
+    output_data      = models.JSONField(default=dict)
     error_message    = models.TextField(blank=True)
     started_at       = models.DateTimeField(null=True, blank=True)
     completed_at     = models.DateTimeField(null=True, blank=True)
@@ -130,15 +127,15 @@ class AgentRun(TenantAwareModel):
         COMPLETED = 'completed', 'Completed'
         FAILED    = 'failed',    'Failed'
 
-    id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    agent        = models.ForeignKey(Agent, on_delete=models.PROTECT)
-    workflow_run = models.OneToOneField(WorkflowRun, on_delete=models.CASCADE, related_name='agent_run')
-    status       = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    triggered_by = models.CharField(max_length=255)         # username or 'scheduler'
-    input_hash   = models.CharField(max_length=64, blank=True)
+    id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    agent          = models.ForeignKey(Agent, on_delete=models.PROTECT)
+    workflow_run   = models.OneToOneField(WorkflowRun, on_delete=models.CASCADE, related_name='agent_run')
+    status         = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    triggered_by   = models.CharField(max_length=255)
+    input_hash     = models.CharField(max_length=64, blank=True)
     output_summary = models.JSONField(default=dict)
-    started_at   = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
+    started_at     = models.DateTimeField(null=True, blank=True)
+    completed_at   = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'agent_runs'
@@ -159,7 +156,7 @@ class NodeRun(models.Model):
     workflow_run = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='node_runs')
     node_code    = models.CharField(max_length=100)
     status       = models.CharField(max_length=20, default='completed')
-    input_ref    = models.CharField(max_length=64, blank=True)   # hash → MemoryPayload
+    input_ref    = models.CharField(max_length=64, blank=True)
     output_ref   = models.CharField(max_length=64, blank=True)
     duration_ms  = models.IntegerField(null=True)
     retry_count  = models.IntegerField(default=0)
@@ -186,21 +183,20 @@ class HumanAction(models.Model):
         REJECTED  = 'REJECTED',  'Rejected'
         ESCALATED = 'ESCALATED', 'Escalated'
 
-    id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workflow_run = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='human_actions')
-    node_code    = models.CharField(max_length=100)          # which HITL node
-    actor        = models.CharField(max_length=255)          # email of reviewer
-    action       = models.CharField(max_length=20, choices=ActionType.choices)
-    reason_code  = models.CharField(max_length=100, blank=True)
+    id            = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run  = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='human_actions')
+    node_code     = models.CharField(max_length=100)
+    actor         = models.CharField(max_length=255)
+    action        = models.CharField(max_length=20, choices=ActionType.choices)
+    reason_code   = models.CharField(max_length=100, blank=True)
     justification = models.TextField(blank=True)
-    timestamp    = models.DateTimeField(auto_now_add=True)
+    timestamp     = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'human_actions'
         ordering = ['timestamp']
 
     def save(self, *args, **kwargs):
-        # Immutable — block updates after creation
         if self.pk:
             raise ValueError('HumanAction records are immutable and cannot be updated.')
         super().save(*args, **kwargs)
@@ -214,16 +210,15 @@ class HumanAction(models.Model):
 class DecisionPoint(models.Model):
     """
     Structured evidence chain for every automated decision.
-    The 'why' behind every choice the system made.
     """
-    id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    workflow_run   = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='decisions')
-    node_code      = models.CharField(max_length=100)
-    options        = models.JSONField(default=list)          # options that were generated
-    selected       = models.JSONField(default=dict)          # option that was chosen
-    decision_basis = models.TextField(blank=True)            # why this option was selected
-    quality_signals = models.JSONField(default=dict)         # confidence, completeness, etc.
-    created_at     = models.DateTimeField(auto_now_add=True)
+    id              = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run    = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='decisions')
+    node_code       = models.CharField(max_length=100)
+    options         = models.JSONField(default=list)
+    selected        = models.JSONField(default=dict)
+    decision_basis  = models.TextField(blank=True)
+    quality_signals = models.JSONField(default=dict)
+    created_at      = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'decision_points'

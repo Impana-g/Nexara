@@ -27,6 +27,49 @@ def health_check(request):
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
+from core.serializers import RegistrationSerializer
+from core.auth_decorators import login_required_view
+
+
+# ─── HTML Form Views (render registration and login pages) ──────────────────
+
+def register_form_view(request):
+    """Render the registration form (HTML page)"""
+    return render(request, 'core/register.html')
+
+
+def login_form_view(request):
+    """Render the login form (HTML page)"""
+    return render(request, 'core/login.html')
+
+
+@login_required_view
+def dashboard_view(request):
+    """
+    Render the dashboard (protected - only authenticated users).
+    Example of a protected view that redirects to login if not authenticated.
+    """
+    return render(request, 'core/dashboard.html')
+
+
+# ─── API Views (JSON endpoints) ────────────────────────────────────────────
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def register_view(request):
+    """
+    POST /api/auth/register/
+    Body: { "full_name": "...", "email": "...", "password": "...", "confirm_password": "..." }
+    Returns: { "success": true, "message": "Registration successful. Please log in." }
+    """
+    serializer = RegistrationSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(
+            {"success": True, "message": "Registration successful. Please log in."},
+            status=status.HTTP_201_CREATED
+        )
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def login_view(request):

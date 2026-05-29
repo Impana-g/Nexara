@@ -10,9 +10,35 @@ from engine.models import (
 
 
 # ─── Workflow Template ────────────────────────────────────────────────────────
+from django import forms as django_forms
+import json
+
+
+class WorkflowTemplateForm(django_forms.ModelForm):
+    graph_json = django_forms.CharField(
+        initial='{}',
+        required=False,
+        widget=django_forms.Textarea(attrs={'rows': 3}),
+        help_text='Enter valid JSON. Default: {}'
+    )
+
+    def clean_graph_json(self):
+        data = self.cleaned_data.get('graph_json', '')
+        if not data or data.strip() == '':
+            return {}
+        try:
+            return json.loads(data)
+        except Exception:
+            raise django_forms.ValidationError('Enter valid JSON.')
+
+    class Meta:
+        model  = WorkflowTemplate
+        fields = '__all__'
+
 
 @admin.register(WorkflowTemplate)
 class WorkflowTemplateAdmin(admin.ModelAdmin):
+    form          = WorkflowTemplateForm
     list_display  = ('code', 'version', 'name', 'sector', 'is_active', 'created_at')
     list_filter   = ('sector', 'is_active')
     search_fields = ('code', 'name')

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Nexara Platform</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1>Create Account</h1>
+                <p>Join Nexara Platform</p>
+            </div>
+
+            <form id="registerForm" class="auth-form" onsubmit="handleRegister(event)">
+                {% csrf_token %}
+
+                <!-- Full Name -->
+                <div class="form-group">
+                    <label for="fullName">Full Name</label>
+                    <input 
+                        type="text" 
+                        id="fullName" 
+                        name="full_name" 
+                        placeholder="John Doe" 
+                        required
+                    >
+                    <span class="error-message" id="fullNameError"></span>
+                </div>
+
+                <!-- Email -->
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        name="email" 
+                        placeholder="you@example.com" 
+                        required
+                    >
+                    <span class="error-message" id="emailError"></span>
+                </div>
+
+                <!-- Password -->
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        placeholder="At least 8 characters" 
+                        required
+                    >
+                    <span class="password-hint">Minimum 8 characters</span>
+                    <span class="error-message" id="passwordError"></span>
+                </div>
+
+                <!-- Confirm Password -->
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password</label>
+                    <input 
+                        type="password" 
+                        id="confirmPassword" 
+                        name="confirm_password" 
+                        placeholder="Re-enter your password" 
+                        required
+                    >
+                    <span class="error-message" id="confirmPasswordError"></span>
+                </div>
+
+                <!-- Success/Error Messages -->
+                <div id="successMessage" class="success-message" style="display: none;"></div>
+                <div id="errorMessage" class="error-message-box" style="display: none;"></div>
+
+                <!-- Loading State -->
+                <button type="submit" class="auth-button" id="submitBtn">
+                    <span id="buttonText">Create Account</span>
+                    <span id="loadingSpinner" style="display: none;"></span>
+                </button>
+            </form>
+
+            <!-- Login Link -->
+            <div class="auth-footer">
+                <p>Already have an account? <a href="{% url 'auth-login-form' %}">Log in here</a></p>
+            </div>
+        </div>
+
+        <!-- Security Info -->
+        <div class="auth-info">
+            <h3>🔒 Security Features</h3>
+            <ul>
+                <li>✓ Passwords are securely hashed</li>
+                <li>✓ Email verification prevents duplicates</li>
+                <li>✓ SSL/TLS encryption in transit</li>
+                <li>✓ CSRF protection on all forms</li>
+            </ul>
+        </div>
+    </div>
+
+    {% load static %}
+    <script src="{% static 'js/auth.js' %}"></script>
+</body>
+</html>
