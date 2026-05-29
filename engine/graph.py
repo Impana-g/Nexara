@@ -71,26 +71,26 @@ def make_graph_node(node_code: str, service: WorkflowExecutionService):
     return graph_node
 
 
-# ─── Graph Builder ────────────────────────────────────────────────────────────
+# ─── Finance Graph ────────────────────────────────────────────────────────────
 
 def build_finance_graph(service: WorkflowExecutionService) -> StateGraph:
     """
-    Builds the finance portfolio review workflow graph.
+    Finance portfolio review workflow graph.
 
     Flow:
         portfolio_import
             → compute_metrics
             → concentration_check
             → suitability_check
-            → evaluate_policies
-            → human_decision        ← HITL pause here
+            → evaluate_policies     ⏸ HITL pause here (last node before human_decision)
+            → human_decision
             → approval_gate
             → generate_report
+            → extract_insights
             → END
     """
     graph = StateGraph(WorkflowState)
 
-    # Register all nodes
     node_sequence = [
         'portfolio_import',
         'compute_metrics',
@@ -100,32 +100,27 @@ def build_finance_graph(service: WorkflowExecutionService) -> StateGraph:
         'human_decision',
         'approval_gate',
         'generate_report',
+        'extract_insights',
     ]
 
     for code in node_sequence:
         graph.add_node(code, make_graph_node(code, service))
 
-    # Linear edges
     graph.set_entry_point('portfolio_import')
-    graph.add_edge('portfolio_import',   'compute_metrics')
-    graph.add_edge('compute_metrics',    'concentration_check')
-    graph.add_edge('concentration_check','suitability_check')
-    graph.add_edge('suitability_check',  'evaluate_policies')
-    graph.add_edge('evaluate_policies',  'human_decision')
-
-    # Conditional edge after approval_gate
-    graph.add_edge('human_decision',     'approval_gate')
+    graph.add_edge('portfolio_import',    'compute_metrics')
+    graph.add_edge('compute_metrics',     'concentration_check')
+    graph.add_edge('concentration_check', 'suitability_check')
+    graph.add_edge('suitability_check',   'evaluate_policies')
+    graph.add_edge('evaluate_policies',   'human_decision')
+    graph.add_edge('human_decision',      'approval_gate')
 
     def route_after_approval(state: WorkflowState) -> str:
-        outputs      = state.get('node_outputs', {})
-        gate_output  = outputs.get('approval_gate', {})
-        route        = gate_output.get('route', 'APPROVED')
-
+        outputs     = state.get('node_outputs', {})
+        gate_output = outputs.get('approval_gate', {})
+        route       = gate_output.get('route', 'APPROVED')
         if route == 'APPROVED':
             return 'generate_report'
-        else:
-            # REJECTED or ESCALATED — end without report
-            return END
+        return END
 
     graph.add_conditional_edges(
         'approval_gate',
@@ -136,9 +131,13 @@ def build_finance_graph(service: WorkflowExecutionService) -> StateGraph:
         }
     )
 
-    graph.add_edge('generate_report', END)
+    graph.add_edge('generate_report',  'extract_insights')
+    graph.add_edge('extract_insights', END)
 
     return graph
+
+
+# ─── IT Graph ─────────────────────────────────────────────────────────────────
 
 def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
     """
@@ -149,10 +148,11 @@ def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
             → check_freeze_window
             → evaluate_risk_level
             → evaluate_policies
-            → notify_cab
-            → human_decision        ← CAB approval (HITL)
+            → notify_cab            ⏸ HITL pause here (last node before human_decision)
+            → human_decision
             → approval_gate
             → generate_soc2_evidence
+            → extract_insights
             → END
     """
     graph = StateGraph(WorkflowState)
@@ -166,6 +166,7 @@ def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
         'human_decision',
         'approval_gate',
         'generate_soc2_evidence',
+        'extract_insights',
     ]
 
     for code in node_sequence:
@@ -196,14 +197,78 @@ def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
         }
     )
 
-    graph.add_edge('generate_soc2_evidence', END)
+    graph.add_edge('generate_soc2_evidence', 'extract_insights')
+    graph.add_edge('extract_insights',        END)
+
     return graph
+
+
+# ─── HR Graph ─────────────────────────────────────────────────────────────────
+
+def build_hr_graph(service: WorkflowExecutionService) -> StateGraph:
+    """
+    HR hiring workflow graph.
+
+    Flow:
+        evaluate_policies           ⏸ HITL pause here (last node before human_decision)
+            → human_decision
+            → approval_gate
+            → extract_insights
+            → END
+    """
+    graph = StateGraph(WorkflowState)
+
+    node_sequence = [
+        'evaluate_policies',
+        'human_decision',
+        'approval_gate',
+        'extract_insights',
+    ]
+
+    for code in node_sequence:
+        graph.add_node(code, make_graph_node(code, service))
+
+    graph.set_entry_point('evaluate_policies')
+    graph.add_edge('evaluate_policies', 'human_decision')
+    graph.add_edge('human_decision',    'approval_gate')
+
+    def route_after_approval(state: WorkflowState) -> str:
+        outputs     = state.get('node_outputs', {})
+        gate_output = outputs.get('approval_gate', {})
+        route       = gate_output.get('route', 'APPROVED')
+        if route == 'APPROVED':
+            return 'extract_insights'
+        return END
+
+    graph.add_conditional_edges(
+        'approval_gate',
+        route_after_approval,
+        {
+            'extract_insights': 'extract_insights',
+            END: END,
+        }
+    )
+
+    graph.add_edge('extract_insights', END)
+
+    return graph
+
+
 # ─── Graph Registry ───────────────────────────────────────────────────────────
 
 # Maps sector → graph builder function
 GRAPH_REGISTRY = {
     'finance': build_finance_graph,
     'it':      build_it_graph,
+    'hr':      build_hr_graph,
+}
+
+# Last node executed before human_decision per sector
+# Used to detect when the graph has paused at HITL
+HITL_PAUSE_NODES = {
+    'finance': 'evaluate_policies',
+    'it':      'notify_cab',
+    'hr':      'evaluate_policies',
 }
 
 
@@ -214,20 +279,16 @@ def execute_graph(workflow_run: WorkflowRun) -> dict:
     Main entry point called by execute_workflow_task (Celery).
     Builds the correct graph for the sector, runs it, returns output.
     """
-    sector  = workflow_run.tenant.sector
-    run_id  = str(workflow_run.id)
+    sector = workflow_run.tenant.sector
+    run_id = str(workflow_run.id)
 
     logger.info(f'execute_graph — run_id={run_id} sector={sector}')
 
-    # Get the graph builder for this sector
     builder_fn = GRAPH_REGISTRY.get(sector)
     if not builder_fn:
         raise ValueError(f'No graph registered for sector: {sector}')
 
-    # Build execution service
-    service = WorkflowExecutionService(workflow_run)
-
-    # Build and compile graph with in-memory checkpointer
+    service      = WorkflowExecutionService(workflow_run)
     graph        = builder_fn(service)
     checkpointer = MemorySaver()
     compiled     = graph.compile(
@@ -235,7 +296,6 @@ def execute_graph(workflow_run: WorkflowRun) -> dict:
         interrupt_before=['human_decision'],   # HITL pause point
     )
 
-    # Initial state
     initial_state: WorkflowState = {
         'run_id':       run_id,
         'tenant_id':    str(workflow_run.tenant.id),
@@ -250,25 +310,73 @@ def execute_graph(workflow_run: WorkflowRun) -> dict:
 
     config = {'configurable': {'thread_id': run_id}}
 
-    # Run graph — pauses automatically at human_decision
+    # Run graph — pauses automatically before human_decision
     final_state = compiled.invoke(initial_state, config=config)
 
-    # If paused at HITL, update WorkflowRun status and return
-    if final_state.get('status') != 'failed':
-        current = final_state.get('current_node', '')
-        if current == 'evaluate_policies':
-            # Graph paused before human_decision
-            workflow_run.status         = WorkflowRun.Status.WAITING
-            workflow_run.graph_thread_id = run_id
-            workflow_run.save()
-            logger.info(f'Graph paused at HITL — run_id={run_id}')
-            return {'status': 'waiting_for_input', 'run_id': run_id}
+    # Detect HITL pause — last completed node is the one before human_decision
+    hitl_pause_node = HITL_PAUSE_NODES.get(sector, '')
+    current         = final_state.get('current_node', '')
+
+    if final_state.get('status') != 'failed' and current == hitl_pause_node:
+        workflow_run.status          = WorkflowRun.Status.WAITING
+        workflow_run.graph_thread_id = run_id
+        workflow_run.save()
+        logger.info(f'Graph paused at HITL — run_id={run_id} last_node={current}')
+        return {'status': 'waiting_for_input', 'run_id': run_id}
 
     if final_state.get('status') == 'failed':
         service.fail(final_state.get('error', 'unknown error'))
         return {'status': 'failed'}
 
-    # Completed
+    output = final_state.get('node_outputs', {})
+    service.complete(output)
+    return output
+
+
+# ─── Resume Executor ──────────────────────────────────────────────────────────
+
+def resume_graph(workflow_run: WorkflowRun, action: str, actor: str,
+                 reason_code: str, justification: str) -> dict:
+    """
+    Resumes a paused WorkflowRun after a human decision is submitted.
+    Called by resume_workflow_task (Celery).
+    """
+    sector = workflow_run.tenant.sector
+    run_id = str(workflow_run.id)
+
+    logger.info(f'resume_graph — run_id={run_id} action={action}')
+
+    builder_fn = GRAPH_REGISTRY.get(sector)
+    if not builder_fn:
+        raise ValueError(f'No graph registered for sector: {sector}')
+
+    service      = WorkflowExecutionService(workflow_run)
+    graph        = builder_fn(service)
+    checkpointer = MemorySaver()
+    compiled     = graph.compile(
+        checkpointer=checkpointer,
+        interrupt_before=['human_decision'],
+    )
+
+    config = {'configurable': {'thread_id': run_id}}
+
+    # Resume with human action injected into state
+    resume_state = {
+        'human_action': {
+            'action':        action,
+            'actor':         actor,
+            'reason_code':   reason_code,
+            'justification': justification,
+        },
+        'status': 'running',
+    }
+
+    final_state = compiled.invoke(resume_state, config=config)
+
+    if final_state.get('status') == 'failed':
+        service.fail(final_state.get('error', 'unknown error'))
+        return {'status': 'failed'}
+
     output = final_state.get('node_outputs', {})
     service.complete(output)
     return output

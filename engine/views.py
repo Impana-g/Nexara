@@ -143,6 +143,16 @@ def submit_human_decision(request, run_id):
         "justification": "Reviewed and approved."
     }
     Submits a human decision and resumes the paused workflow.
+    
+    Example:
+    curl -X POST http://localhost:8000/api/engine/runs/2776d1f0-3668-4d89-9a04-7283bffd3ed3/hitl/submit/ \
+      -H "Authorization: Token YOUR_AUTH_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "action": "APPROVED",
+        "reason_code": "RISK_ACCEPTED",
+        "justification": "Reviewed and approved."
+      }'
     """
     try:
         run = WorkflowRun.objects.select_related(

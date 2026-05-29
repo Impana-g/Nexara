@@ -197,9 +197,9 @@ class HumanAction(models.Model):
         ordering = ['timestamp']
 
     def save(self, *args, **kwargs):
-        if self.pk:
-            raise ValueError('HumanAction records are immutable and cannot be updated.')
-        super().save(*args, **kwargs)
+     if self._state.adding is False:
+        raise ValueError('HumanAction records are immutable and cannot be updated.')
+     super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.actor} → {self.action} on {self.node_code}'
