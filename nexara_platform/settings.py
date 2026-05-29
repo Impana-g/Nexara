@@ -32,7 +32,8 @@ INSTALLED_APPS = [
     'core',       # multi-tenancy, auth, RBAC, Redis pub/sub
     'engine',     # workflow engine, node registry, HITL, SSE, decisions
     'domains',
-    'domains.it',    # business domain models (finance first)
+    'domains.it', 
+       'domains.hr',   # business domain models (finance first)
     'sectors',    # sector registry & config
 ]
 
