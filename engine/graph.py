@@ -140,12 +140,70 @@ def build_finance_graph(service: WorkflowExecutionService) -> StateGraph:
 
     return graph
 
+def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
+    """
+    IT Change Request Approval workflow graph.
 
+    Flow:
+        validate_change_request
+            → check_freeze_window
+            → evaluate_risk_level
+            → evaluate_policies
+            → notify_cab
+            → human_decision        ← CAB approval (HITL)
+            → approval_gate
+            → generate_soc2_evidence
+            → END
+    """
+    graph = StateGraph(WorkflowState)
+
+    node_sequence = [
+        'validate_change_request',
+        'check_freeze_window',
+        'evaluate_risk_level',
+        'evaluate_policies',
+        'notify_cab',
+        'human_decision',
+        'approval_gate',
+        'generate_soc2_evidence',
+    ]
+
+    for code in node_sequence:
+        graph.add_node(code, make_graph_node(code, service))
+
+    graph.set_entry_point('validate_change_request')
+    graph.add_edge('validate_change_request', 'check_freeze_window')
+    graph.add_edge('check_freeze_window',      'evaluate_risk_level')
+    graph.add_edge('evaluate_risk_level',      'evaluate_policies')
+    graph.add_edge('evaluate_policies',        'notify_cab')
+    graph.add_edge('notify_cab',               'human_decision')
+    graph.add_edge('human_decision',           'approval_gate')
+
+    def route_after_approval(state: WorkflowState) -> str:
+        outputs     = state.get('node_outputs', {})
+        gate_output = outputs.get('approval_gate', {})
+        route       = gate_output.get('route', 'APPROVED')
+        if route == 'APPROVED':
+            return 'generate_soc2_evidence'
+        return END
+
+    graph.add_conditional_edges(
+        'approval_gate',
+        route_after_approval,
+        {
+            'generate_soc2_evidence': 'generate_soc2_evidence',
+            END: END,
+        }
+    )
+
+    graph.add_edge('generate_soc2_evidence', END)
+    return graph
 # ─── Graph Registry ───────────────────────────────────────────────────────────
 
 # Maps sector → graph builder function
 GRAPH_REGISTRY = {
     'finance': build_finance_graph,
+    'it':      build_it_graph,
 }
 
 

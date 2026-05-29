@@ -31,7 +31,8 @@ INSTALLED_APPS = [
     # Nexara apps
     'core',       # multi-tenancy, auth, RBAC, Redis pub/sub
     'engine',     # workflow engine, node registry, HITL, SSE, decisions
-    'domains',    # business domain models (finance first)
+    'domains',
+    'domains.it',    # business domain models (finance first)
     'sectors',    # sector registry & config
 ]
 

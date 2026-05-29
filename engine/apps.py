@@ -13,4 +13,4 @@ class EngineConfig(AppConfig):
         # Later: import engine.nodes.finance, engine.nodes.it, etc.
         import engine.nodes.finance   # noqa: F401  ← add this line
       
-       
+        import engine.nodes.it        # noqa: F401  ← add this
