@@ -204,63 +204,291 @@ def build_it_graph(service: WorkflowExecutionService) -> StateGraph:
 
 
 # ─── HR Graph ─────────────────────────────────────────────────────────────────
+# ─── HR Graph ─────────────────────────────────────────────────────────────────
 
 def build_hr_graph(service: WorkflowExecutionService) -> StateGraph:
     """
-    HR hiring workflow graph.
+    HR Offer Letter Approval workflow graph.
 
     Flow:
-        evaluate_policies           ⏸ HITL pause here (last node before human_decision)
-            → human_decision
+        validate_job_requisition
+            → check_headcount_budget
+            → validate_salary_band
+            → evaluate_policies
+            → check_pf_esi_compliance
+            → human_decision        ← HR Manager approval (HITL)
             → approval_gate
-            → extract_insights
+            → generate_offer_letter
             → END
     """
     graph = StateGraph(WorkflowState)
 
     node_sequence = [
+        'validate_job_requisition',
+        'check_headcount_budget',
+        'validate_salary_band',
         'evaluate_policies',
+        'check_pf_esi_compliance',
         'human_decision',
         'approval_gate',
-        'extract_insights',
+        'generate_offer_letter',
     ]
 
     for code in node_sequence:
         graph.add_node(code, make_graph_node(code, service))
 
-    graph.set_entry_point('evaluate_policies')
-    graph.add_edge('evaluate_policies', 'human_decision')
-    graph.add_edge('human_decision',    'approval_gate')
+    graph.set_entry_point('validate_job_requisition')
+    graph.add_edge('validate_job_requisition', 'check_headcount_budget')
+    graph.add_edge('check_headcount_budget',   'validate_salary_band')
+    graph.add_edge('validate_salary_band',     'evaluate_policies')
+    graph.add_edge('evaluate_policies',        'check_pf_esi_compliance')
+    graph.add_edge('check_pf_esi_compliance',  'human_decision')
+    graph.add_edge('human_decision',           'approval_gate')
 
     def route_after_approval(state: WorkflowState) -> str:
         outputs     = state.get('node_outputs', {})
         gate_output = outputs.get('approval_gate', {})
         route       = gate_output.get('route', 'APPROVED')
         if route == 'APPROVED':
-            return 'extract_insights'
+            return 'generate_offer_letter'
         return END
 
     graph.add_conditional_edges(
         'approval_gate',
         route_after_approval,
         {
-            'extract_insights': 'extract_insights',
+            'generate_offer_letter': 'generate_offer_letter',
             END: END,
         }
     )
 
-    graph.add_edge('extract_insights', END)
-
+    graph.add_edge('generate_offer_letter', END)
     return graph
 
+def build_legal_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_contract', 'conflict_of_interest_check',
+             'legal_risk_assessment', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_legal_summary']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_contract')
+    graph.add_edge('validate_contract',          'conflict_of_interest_check')
+    graph.add_edge('conflict_of_interest_check', 'legal_risk_assessment')
+    graph.add_edge('legal_risk_assessment',      'evaluate_policies')
+    graph.add_edge('evaluate_policies',          'human_decision')
+    graph.add_edge('human_decision',             'approval_gate')
+    def route(state):
+        return 'generate_legal_summary' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_legal_summary': 'generate_legal_summary', END: END})
+    graph.add_edge('generate_legal_summary', END)
+    return graph
+
+
+def build_healthcare_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_patient_record', 'check_prescription_limits',
+             'insurance_eligibility_check', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_clinical_summary']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_patient_record')
+    graph.add_edge('validate_patient_record',    'check_prescription_limits')
+    graph.add_edge('check_prescription_limits',  'insurance_eligibility_check')
+    graph.add_edge('insurance_eligibility_check','evaluate_policies')
+    graph.add_edge('evaluate_policies',          'human_decision')
+    graph.add_edge('human_decision',             'approval_gate')
+    def route(state):
+        return 'generate_clinical_summary' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_clinical_summary': 'generate_clinical_summary', END: END})
+    graph.add_edge('generate_clinical_summary', END)
+    return graph
+
+
+def build_insurance_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_claim', 'fraud_detection_check', 'calculate_settlement',
+             'evaluate_policies', 'human_decision', 'approval_gate', 'generate_claim_decision']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_claim')
+    graph.add_edge('validate_claim',        'fraud_detection_check')
+    graph.add_edge('fraud_detection_check', 'calculate_settlement')
+    graph.add_edge('calculate_settlement',  'evaluate_policies')
+    graph.add_edge('evaluate_policies',     'human_decision')
+    graph.add_edge('human_decision',        'approval_gate')
+    def route(state):
+        return 'generate_claim_decision' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_claim_decision': 'generate_claim_decision', END: END})
+    graph.add_edge('generate_claim_decision', END)
+    return graph
+
+
+def build_education_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_admission_application', 'check_eligibility_criteria',
+             'grant_compliance_check', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_admission_decision']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_admission_application')
+    graph.add_edge('validate_admission_application', 'check_eligibility_criteria')
+    graph.add_edge('check_eligibility_criteria',     'grant_compliance_check')
+    graph.add_edge('grant_compliance_check',         'evaluate_policies')
+    graph.add_edge('evaluate_policies',              'human_decision')
+    graph.add_edge('human_decision',                 'approval_gate')
+    def route(state):
+        return 'generate_admission_decision' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_admission_decision': 'generate_admission_decision', END: END})
+    graph.add_edge('generate_admission_decision', END)
+    return graph
+
+
+def build_government_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_tender', 'check_procurement_policy', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_tender_report']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_tender')
+    graph.add_edge('validate_tender',           'check_procurement_policy')
+    graph.add_edge('check_procurement_policy',  'evaluate_policies')
+    graph.add_edge('evaluate_policies',         'human_decision')
+    graph.add_edge('human_decision',            'approval_gate')
+    def route(state):
+        return 'generate_tender_report' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_tender_report': 'generate_tender_report', END: END})
+    graph.add_edge('generate_tender_report', END)
+    return graph
+
+
+def build_energy_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_esg_report', 'check_emission_limits', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_esg_certificate']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_esg_report')
+    graph.add_edge('validate_esg_report',   'check_emission_limits')
+    graph.add_edge('check_emission_limits', 'evaluate_policies')
+    graph.add_edge('evaluate_policies',     'human_decision')
+    graph.add_edge('human_decision',        'approval_gate')
+    def route(state):
+        return 'generate_esg_certificate' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_esg_certificate': 'generate_esg_certificate', END: END})
+    graph.add_edge('generate_esg_certificate', END)
+    return graph
+
+
+def build_telecom_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_license_application', 'check_spectrum_availability',
+             'evaluate_policies', 'human_decision', 'approval_gate', 'generate_license_decision']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_license_application')
+    graph.add_edge('validate_license_application', 'check_spectrum_availability')
+    graph.add_edge('check_spectrum_availability',  'evaluate_policies')
+    graph.add_edge('evaluate_policies',            'human_decision')
+    graph.add_edge('human_decision',               'approval_gate')
+    def route(state):
+        return 'generate_license_decision' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_license_decision': 'generate_license_decision', END: END})
+    graph.add_edge('generate_license_decision', END)
+    return graph
+
+
+def build_manufacturing_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_quality_inspection', 'check_defect_rate', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_quality_certificate']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_quality_inspection')
+    graph.add_edge('validate_quality_inspection', 'check_defect_rate')
+    graph.add_edge('check_defect_rate',           'evaluate_policies')
+    graph.add_edge('evaluate_policies',           'human_decision')
+    graph.add_edge('human_decision',              'approval_gate')
+    def route(state):
+        return 'generate_quality_certificate' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_quality_certificate': 'generate_quality_certificate', END: END})
+    graph.add_edge('generate_quality_certificate', END)
+    return graph
+
+
+def build_logistics_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_shipment', 'check_customs_compliance', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_shipping_clearance']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_shipment')
+    graph.add_edge('validate_shipment',         'check_customs_compliance')
+    graph.add_edge('check_customs_compliance',  'evaluate_policies')
+    graph.add_edge('evaluate_policies',         'human_decision')
+    graph.add_edge('human_decision',            'approval_gate')
+    def route(state):
+        return 'generate_shipping_clearance' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_shipping_clearance': 'generate_shipping_clearance', END: END})
+    graph.add_edge('generate_shipping_clearance', END)
+    return graph
+
+
+def build_retail_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_vendor_onboarding', 'check_return_policy_compliance',
+             'evaluate_policies', 'human_decision', 'approval_gate', 'generate_vendor_approval']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_vendor_onboarding')
+    graph.add_edge('validate_vendor_onboarding',      'check_return_policy_compliance')
+    graph.add_edge('check_return_policy_compliance',  'evaluate_policies')
+    graph.add_edge('evaluate_policies',               'human_decision')
+    graph.add_edge('human_decision',                  'approval_gate')
+    def route(state):
+        return 'generate_vendor_approval' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_vendor_approval': 'generate_vendor_approval', END: END})
+    graph.add_edge('generate_vendor_approval', END)
+    return graph
+
+
+def build_cybersecurity_graph(service):
+    graph = StateGraph(WorkflowState)
+    nodes = ['validate_security_incident', 'assess_threat_level',
+             'check_regulatory_notification', 'evaluate_policies',
+             'human_decision', 'approval_gate', 'generate_incident_report']
+    for code in nodes:
+        graph.add_node(code, make_graph_node(code, service))
+    graph.set_entry_point('validate_security_incident')
+    graph.add_edge('validate_security_incident',    'assess_threat_level')
+    graph.add_edge('assess_threat_level',           'check_regulatory_notification')
+    graph.add_edge('check_regulatory_notification', 'evaluate_policies')
+    graph.add_edge('evaluate_policies',             'human_decision')
+    graph.add_edge('human_decision',                'approval_gate')
+    def route(state):
+        return 'generate_incident_report' if state.get('node_outputs', {}).get('approval_gate', {}).get('route') == 'APPROVED' else END
+    graph.add_conditional_edges('approval_gate', route, {'generate_incident_report': 'generate_incident_report', END: END})
+    graph.add_edge('generate_incident_report', END)
+    return graph
 
 # ─── Graph Registry ───────────────────────────────────────────────────────────
 
 # Maps sector → graph builder function
 GRAPH_REGISTRY = {
-    'finance': build_finance_graph,
-    'it':      build_it_graph,
-    'hr':      build_hr_graph,
+    'finance':        build_finance_graph,
+    'it':             build_it_graph,
+    'hr':             build_hr_graph,
+    'legal':          build_legal_graph,
+    'healthcare':     build_healthcare_graph,
+    'insurance':      build_insurance_graph,
+    'education':      build_education_graph,
+    'government':     build_government_graph,
+    'energy':         build_energy_graph,
+    'telecom':        build_telecom_graph,
+    'manufacturing':  build_manufacturing_graph,
+    'logistics':      build_logistics_graph,
+    'retail':         build_retail_graph,
+    'cybersecurity':  build_cybersecurity_graph,
 }
 
 # Last node executed before human_decision per sector

@@ -8,9 +8,18 @@ class EngineConfig(AppConfig):
     name = 'engine'
 
     def ready(self):
-        # Import all node modules here so @register_node decorators fire at startup
-        import engine.nodes.common      # noqa: F401
-        # Later: import engine.nodes.finance, engine.nodes.it, etc.
-        import engine.nodes.finance   # noqa: F401  ← add this line
-      
-        import engine.nodes.it        # noqa: F401  ← add this
+        import engine.nodes.common         # noqa: F401
+        import engine.nodes.finance        # noqa: F401
+        import engine.nodes.it             # noqa: F401
+        import engine.nodes.hr             # noqa: F401
+        import engine.nodes.legal          # noqa: F401
+        import engine.nodes.healthcare     # noqa: F401
+        import engine.nodes.insurance      # noqa: F401
+        import engine.nodes.education      # noqa: F401
+        import engine.nodes.government     # noqa: F401
+        import engine.nodes.energy         # noqa: F401
+        import engine.nodes.telecom        # noqa: F401
+        import engine.nodes.manufacturing  # noqa: F401
+        import engine.nodes.logistics      # noqa: F401
+        import engine.nodes.retail         # noqa: F401
+        import engine.nodes.cybersecurity  # noqa: F401
