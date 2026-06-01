@@ -9,6 +9,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from engine.models import WorkflowRun
 from engine.services import WorkflowExecutionService
+from engine.events import publish_event
 
 logger = logging.getLogger('nexara.engine.graph')
 
@@ -47,6 +48,10 @@ def make_graph_node(node_code: str, service: WorkflowExecutionService):
 
         try:
             output = service.execute_node(node_code, input_data)
+            publish_event(state['run_id'], 'node_complete', {
+                'node':   node_code,
+                'sector': state.get('sector', ''),
+            })
             return {
                 'node_outputs': {node_code: output},
                 'current_node': node_code,
@@ -54,6 +59,11 @@ def make_graph_node(node_code: str, service: WorkflowExecutionService):
             }
         except Exception as e:
             logger.error(f'Graph node {node_code} failed: {e}')
+            publish_event(state['run_id'], 'node_failed', {
+                'node':   node_code,
+                'sector': state.get('sector', ''),
+                'error':  str(e),
+            })
             return {
                 'current_node': node_code,
                 'status':       'failed',
@@ -593,15 +603,25 @@ def execute_graph(workflow_run: WorkflowRun) -> dict:
         workflow_run.status          = WorkflowRun.Status.WAITING
         workflow_run.graph_thread_id = run_id
         workflow_run.save()
+        publish_event(run_id, 'hitl_pause', {
+            'sector':  sector,
+            'node':    hitl_pause_node,
+            'message': 'Workflow paused — awaiting human decision',
+        })
         logger.info(f'Graph paused at HITL — run_id={run_id} last_node={current}')
         return {'status': 'waiting_for_input', 'run_id': run_id}
 
     if final_state.get('status') == 'failed':
         service.fail(final_state.get('error', 'unknown error'))
+        publish_event(run_id, 'workflow_failed', {
+            'sector': sector,
+            'error':  final_state.get('error', 'unknown error'),
+        })
         return {'status': 'failed'}
 
     output = final_state.get('node_outputs', {})
     service.complete(output)
+    publish_event(run_id, 'workflow_complete', {'sector': sector})
     return output
 
 
@@ -630,7 +650,17 @@ def resume_graph(workflow_run: WorkflowRun, action: str, actor: str,
     if action != 'APPROVED':
         logger.info(f'resume_graph — action={action}, skipping post-HITL nodes')
         service.complete(workflow_run.output_data or {})
+        publish_event(run_id, 'workflow_complete', {
+            'sector': sector,
+            'action': action,
+        })
         return {'status': 'rejected_or_escalated', 'action': action}
+
+    publish_event(run_id, 'hitl_resume', {
+        'sector': sector,
+        'action': action,
+        'actor':  actor,
+    })
 
     # Execute human_decision node to record the decision
     try:
@@ -662,10 +692,22 @@ def resume_graph(workflow_run: WorkflowRun, action: str, actor: str,
             result = service.execute_node(node_code, accumulated)
             accumulated[node_code] = result
             output[node_code]      = result
+            publish_event(run_id, 'node_complete', {
+                'node':   node_code,
+                'sector': sector,
+                'phase':  'post_hitl',
+            })
             logger.info(f'resume_graph — executed {node_code}')
         except Exception as e:
             logger.error(f'resume_graph — {node_code} failed: {e}')
+            publish_event(run_id, 'node_failed', {
+                'node':   node_code,
+                'sector': sector,
+                'phase':  'post_hitl',
+                'error':  str(e),
+            })
 
     final_output = {**(workflow_run.output_data or {}), **output}
     service.complete(final_output)
+    publish_event(run_id, 'workflow_complete', {'sector': sector})
     return final_output

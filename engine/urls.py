@@ -19,6 +19,10 @@ urlpatterns = [
     path('api/engine/runs/<uuid:run_id>/hitl/submit/',
          views.submit_human_decision, name='hitl-submit'),
 
+    # SSE real-time stream
+    path('api/engine/runs/<uuid:run_id>/stream/',
+         views.workflow_run_stream, name='workflow-run-stream'),
+
     # Internal (LangGraph → Django)
     path('api/internal/nodes/<str:node_code>/execute/',
          views.internal_node_execute, name='internal-node-execute'),

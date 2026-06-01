@@ -1,6 +1,11 @@
 # engine/views.py
 
+import json as _json
 import logging
+import os as _os
+
+import redis as _redis_lib
+from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -38,7 +43,7 @@ def trigger_agent(request, agent_code):
             triggered_by = request.user.username,
         )
         return Response({
-            'agent_run_id':   str(agent_run.id),
+            'agent_run_id':    str(agent_run.id),
             'workflow_run_id': str(agent_run.workflow_run.id),
             'status':          agent_run.status,
             'message':         f'Agent {agent_code} triggered successfully.',
@@ -51,7 +56,7 @@ def trigger_agent(request, agent_code):
         return Response({'error': 'Internal server error.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# ─── Workflow Run Status ───────────────────────────────────────────────────────
+# ─── Workflow Run Status ──────────────────────────────────────────────────────
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -112,7 +117,6 @@ def list_workflow_runs(request):
         'template', 'agent'
     ).order_by('-created_at')
 
-    # Optional status filter
     status_filter = request.query_params.get('status')
     if status_filter:
         qs = qs.filter(status=status_filter)
@@ -142,17 +146,6 @@ def submit_human_decision(request, run_id):
         "reason_code": "RISK_ACCEPTED",
         "justification": "Reviewed and approved."
     }
-    Submits a human decision and resumes the paused workflow.
-    
-    Example:
-    curl -X POST http://localhost:8000/api/engine/runs/2776d1f0-3668-4d89-9a04-7283bffd3ed3/hitl/submit/ \
-      -H "Authorization: Token YOUR_AUTH_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "action": "APPROVED",
-        "reason_code": "RISK_ACCEPTED",
-        "justification": "Reviewed and approved."
-      }'
     """
     try:
         run = WorkflowRun.objects.select_related(
@@ -177,7 +170,6 @@ def submit_human_decision(request, run_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Write immutable HumanAction record
     HumanAction.objects.create(
         workflow_run  = run,
         node_code     = 'human_decision',
@@ -187,7 +179,6 @@ def submit_human_decision(request, run_id):
         justification = justification,
     )
 
-    # Resume the graph via Celery task
     from engine.tasks import resume_workflow_task
     resume_workflow_task.delay(
         workflow_run_id = str(run.id),
@@ -203,7 +194,7 @@ def submit_human_decision(request, run_id):
         'run_id':  str(run.id),
         'action':  action,
         'status':  'resuming',
-        'message': f'Decision recorded. Workflow resuming.',
+        'message': 'Decision recorded. Workflow resuming.',
     })
 
 
@@ -218,6 +209,7 @@ def internal_node_execute(request, node_code):
     Protected by INTERNAL_API_SECRET header.
     """
     from django.conf import settings
+    from engine.services import WorkflowExecutionService
 
     secret = request.headers.get('X-Internal-Secret')
     if secret != settings.NEXARA.get('INTERNAL_API_SECRET'):
@@ -238,3 +230,59 @@ def internal_node_execute(request, node_code):
     except Exception as e:
         logger.error(f'internal_node_execute failed: {e}')
         return Response({'success': False, 'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ─── SSE Stream ───────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def workflow_run_stream(request, run_id):
+    """
+    GET /api/engine/runs/<run_id>/stream/
+
+    Server-Sent Events stream for live workflow progress.
+    Connect immediately after triggering a run — events arrive as nodes execute.
+    Stream auto-closes on: workflow_complete | workflow_failed
+
+    Event shape:
+        data: {"type": "node_complete",      "run_id": "...", "node": "...", "sector": "..."}
+        data: {"type": "hitl_pause",         "run_id": "...", "node": "...", "message": "..."}
+        data: {"type": "workflow_complete",  "run_id": "...", "sector": "..."}
+        data: {"type": "workflow_failed",    "run_id": "...", "error": "..."}
+    """
+    try:
+        run = WorkflowRun.objects.get(id=run_id)
+    except WorkflowRun.DoesNotExist:
+        return Response({'error': 'Workflow run not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    def event_stream():
+        base = _os.getenv('REDIS_URL', 'redis://localhost:6379')
+        if base.count('/') >= 3:
+            base = base.rsplit('/', 1)[0]
+        r       = _redis_lib.Redis.from_url(f'{base}/2', decode_responses=True)
+        pubsub  = r.pubsub()
+        channel = f'nexara:run:{run_id}'
+        pubsub.subscribe(channel)
+
+        # Send current status immediately so client is never stale on connect
+        yield f'data: {_json.dumps({"type": "connected", "run_id": str(run_id), "current_status": run.status})}\n\n'
+
+        TERMINAL = {'workflow_complete', 'workflow_failed'}
+
+        try:
+            for message in pubsub.listen():
+                if message['type'] != 'message':
+                    continue
+                yield f'data: {message["data"]}\n\n'
+                data = _json.loads(message['data'])
+                if data.get('type') in TERMINAL:
+                    break
+        finally:
+            pubsub.unsubscribe(channel)
+            pubsub.close()
+
+    response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+    response['Cache-Control']     = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    response['Connection']        = 'keep-alive'
+    return response
