@@ -567,44 +567,71 @@ def resume_graph(workflow_run: WorkflowRun, action: str, actor: str,
                  reason_code: str, justification: str) -> dict:
     """
     Resumes a paused WorkflowRun after a human decision is submitted.
-    Called by resume_workflow_task (Celery).
+    Skips pre-HITL nodes and executes only post-HITL nodes directly.
     """
     sector = workflow_run.tenant.sector
     run_id = str(workflow_run.id)
 
     logger.info(f'resume_graph — run_id={run_id} action={action}')
 
-    builder_fn = GRAPH_REGISTRY.get(sector)
-    if not builder_fn:
-        raise ValueError(f'No graph registered for sector: {sector}')
+    service = WorkflowExecutionService(workflow_run)
 
-    service      = WorkflowExecutionService(workflow_run)
-    graph        = builder_fn(service)
-    checkpointer = MemorySaver()
-    compiled     = graph.compile(
-        checkpointer=checkpointer,
-        interrupt_before=['human_decision'],
-    )
-
-    config = {'configurable': {'thread_id': run_id}}
-
-    # Resume with human action injected into state
-    resume_state = {
-        'human_action': {
-            'action':        action,
-            'actor':         actor,
-            'reason_code':   reason_code,
-            'justification': justification,
-        },
-        'status': 'running',
+    # Inject human action into context
+    human_action = {
+        'action':        action,
+        'actor':         actor,
+        'reason_code':   reason_code,
+        'justification': justification,
     }
 
-    final_state = compiled.invoke(resume_state, config=config)
+    # Post-HITL node sequences per sector
+    POST_HITL_NODES = {
+        'finance': ['generate_report', 'extract_insights'],
+        'it':      ['generate_soc2_evidence', 'extract_insights'],
+        'hr':      ['generate_offer_letter', 'extract_insights'],
+    }
 
-    if final_state.get('status') == 'failed':
-        service.fail(final_state.get('error', 'unknown error'))
-        return {'status': 'failed'}
+    post_nodes = POST_HITL_NODES.get(sector, ['extract_insights'])
 
-    output = final_state.get('node_outputs', {})
-    service.complete(output)
-    return output
+    if action != 'APPROVED':
+        logger.info(f'resume_graph — action={action}, skipping post-HITL nodes')
+        service.complete(workflow_run.output_data or {})
+        return {'status': 'rejected_or_escalated', 'action': action}
+
+    # Execute human_decision node to record the decision
+    try:
+        service.execute_node('human_decision', {
+            **workflow_run.input_data,
+            **(workflow_run.output_data or {}),
+            'human_action': human_action,
+            **human_action,
+        })
+    except Exception as e:
+        logger.error(f'human_decision node failed: {e}')
+
+    # Execute approval_gate
+    try:
+        service.execute_node('approval_gate', human_action)
+    except Exception as e:
+        logger.error(f'approval_gate node failed: {e}')
+
+    # Execute remaining post-HITL nodes
+    accumulated = {
+        **workflow_run.input_data,
+        **(workflow_run.output_data or {}),
+        'human_action': human_action,
+    }
+
+    output = {}
+    for node_code in post_nodes:
+        try:
+            result = service.execute_node(node_code, accumulated)
+            accumulated[node_code] = result
+            output[node_code] = result
+            logger.info(f'resume_graph — executed {node_code}')
+        except Exception as e:
+            logger.error(f'resume_graph — {node_code} failed: {e}')
+
+    final_output = {**(workflow_run.output_data or {}), **output}
+    service.complete(final_output)
+    return final_output
