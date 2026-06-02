@@ -57,7 +57,7 @@ class Agent(models.Model):
     Named trigger for a workflow.
     e.g. market_data_sync, portfolio_import, change_request_approval
     """
-    code              = models.CharField(max_length=100, unique=True)
+    code              = models.CharField(max_length=100)
     name              = models.CharField(max_length=255)
     description       = models.TextField(blank=True)
     sector            = models.CharField(max_length=50, choices=SectorChoices.choices)
@@ -69,6 +69,7 @@ class Agent(models.Model):
 
     class Meta:
         db_table = 'agents'
+        unique_together = ('sector', 'code')
 
     def __str__(self):
         return f'{self.code} ({self.sector})'

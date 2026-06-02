@@ -7,3 +7,4 @@ staticfiles/
 *.egg-info/ 
 .DS_Store 
 .env 
+db.sqlite3 

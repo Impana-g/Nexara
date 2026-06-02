@@ -62,13 +62,14 @@ class TenantMembership(models.Model):
         ANALYST  = 'analyst',  'Analyst'         # read + trigger workflows
         VIEWER   = 'viewer',   'Viewer'           # read-only
 
-    user       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='membership')
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memberships')
     tenant     = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='members')
     role       = models.CharField(max_length=20, choices=Role.choices, default=Role.VIEWER)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'tenant_memberships'
+        unique_together = ('user', 'tenant')
 
     def __str__(self):
         return f'{self.user.email} → {self.tenant.name} [{self.role}]'

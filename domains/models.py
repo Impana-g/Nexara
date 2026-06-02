@@ -18,13 +18,14 @@ class Client(TenantAwareModel):
 
     id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     full_name      = models.CharField(max_length=255)
-    email          = models.EmailField(unique=True)
+    email          = models.EmailField()
     risk_profile   = models.CharField(max_length=20, choices=RiskProfile.choices)
     risk_tolerance = models.IntegerField(default=50)   # 0-100 score
     is_active      = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'clients'
+        unique_together = ('tenant', 'email')
 
     def __str__(self):
         return f'{self.full_name} ({self.risk_profile})'
@@ -44,7 +45,7 @@ class Instrument(TenantAwareModel):
         CASH         = 'cash',         'Cash'
         ALTERNATIVE  = 'alternative',  'Alternative'
 
-    instrument_uid = models.CharField(max_length=50, unique=True)   # e.g. ISIN or ticker
+    instrument_uid = models.CharField(max_length=50)   # e.g. ISIN or ticker
     name           = models.CharField(max_length=255)
     ticker         = models.CharField(max_length=20, blank=True)
     asset_class    = models.CharField(max_length=20, choices=AssetClass.choices)
@@ -54,6 +55,7 @@ class Instrument(TenantAwareModel):
 
     class Meta:
         db_table = 'instruments'
+        unique_together = ('tenant', 'instrument_uid')
 
     def __str__(self):
         return f'{self.ticker} — {self.name}'
