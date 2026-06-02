@@ -24,6 +24,7 @@ class Vendor(TenantAwareModel):
     phone               = models.CharField(max_length=20)
     verification_status = models.CharField(max_length=20, choices=VerificationStatus.choices, default=VerificationStatus.PENDING)
     onboarded_date      = models.DateField()
+    tenant              = models.ForeignKey('core.Tenant', on_delete=models.CASCADE, related_name='retail_vendors')
 
     class Meta:
         db_table = 'vendors'

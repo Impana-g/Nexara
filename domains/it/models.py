@@ -55,6 +55,7 @@ class Vendor(TenantAwareModel):
     contact_email = models.EmailField(blank=True)
     service_type = models.CharField(max_length=100)
     is_active    = models.BooleanField(default=True)
+    tenant       = models.ForeignKey('core.Tenant', on_delete=models.CASCADE, related_name='it_vendors')
 
     class Meta:
         db_table = 'it_vendors'
