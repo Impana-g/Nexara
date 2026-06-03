@@ -149,3 +149,25 @@ class Transaction(TenantAwareModel):
 
     def __str__(self):
         return f'{self.tx_type} {self.quantity} {self.instrument.ticker} @ {self.price}'
+    
+    from django.db import models
+
+class Gene(models.Model):
+    gene_id = models.CharField(max_length=100)
+    gene_name = models.CharField(max_length=255)
+    chromosome = models.CharField(max_length=50)
+
+class Protein(models.Model):
+    protein_id = models.CharField(max_length=100)
+    protein_name = models.CharField(max_length=255)
+    gene = models.ForeignKey(Gene, on_delete=models.CASCADE)
+
+class GenomeSequence(models.Model):
+    sequence_id = models.CharField(max_length=100)
+    organism = models.CharField(max_length=255)
+    sequence_data = models.TextField()
+
+class ResearchStudy(models.Model):
+    study_name = models.CharField(max_length=255)
+    description = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)

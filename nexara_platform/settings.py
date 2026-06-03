@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'domains.manufacturing',
     'domains.logistics',
     'domains.retail',
+     "domains.biometrics",
     'domains.cybersecurity',
     'sectors',    # sector registry & config
 ]

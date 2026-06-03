@@ -91,7 +91,7 @@ class Migration(migrations.Migration):
                 ('is_exception', models.BooleanField(default=False)),
                 ('exception_reason', models.TextField(blank=True)),
                 ('approved_by', models.CharField(blank=True, max_length=255)),
-                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='domains_hr.employee')),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='hr.employee')),
                 ('tenant', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='core.tenant')),
             ],
             options={
