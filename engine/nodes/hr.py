@@ -116,32 +116,104 @@ class CheckHeadcountBudgetNode(BaseNode):
 )
 class GenerateOfferLetterNode(BaseNode):
     """
-    Generates structured offer letter data
-    from candidate details and approved salary.
+    Claude-powered offer letter generator.
+    Produces a professional, complete offer letter
+    from candidate details and approved compensation.
     """
     def execute(self, input_data: dict, context: dict) -> dict:
+        import os
+        import json
+        import anthropic
+
         candidate_name  = input_data.get('candidate_name', '')
         designation     = input_data.get('designation', '')
         department      = input_data.get('department', '')
         offered_salary  = input_data.get('offered_salary', 0)
+        joining_date    = input_data.get('joining_date', '')
         human_action    = input_data.get('human_action', {})
 
         if human_action.get('action') == 'REJECTED':
             return {
-                'status':  'rejected',
-                'reason':  human_action.get('justification', ''),
+                'status':    'rejected',
+                'reason':    human_action.get('justification', ''),
                 'candidate': candidate_name,
+                'llm_powered': False,
             }
 
-        return {
-            'status':          'generated',
-            'candidate_name':  candidate_name,
-            'designation':     designation,
-            'department':      department,
-            'offered_salary':  offered_salary,
-            'approved_by':     human_action.get('actor', ''),
-            'offer_content':   f'Dear {candidate_name}, We are pleased to offer you the position of {designation} in the {department} department with a salary of {offered_salary}.',
+        # safe fallback
+        offer = {
+            'status':         'generated',
+            'candidate_name': candidate_name,
+            'designation':    designation,
+            'department':     department,
+            'offered_salary': offered_salary,
+            'joining_date':   joining_date,
+            'approved_by':    human_action.get('actor', ''),
+            'offer_letter':   f'Dear {candidate_name}, We are pleased to offer you the position of {designation} in the {department} department with a salary of {offered_salary}.',
+            'subject_line':   f'Offer of Employment — {designation}',
+            'llm_powered':    False,
         }
+
+        try:
+            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                logger.warning('[generate_offer_letter] ANTHROPIC_API_KEY not set — returning fallback')
+                return offer
+
+            client = anthropic.Anthropic(api_key=api_key)
+
+            prompt = f"""You are an HR professional writing a formal employment offer letter.
+
+Candidate Details:
+- Name: {candidate_name}
+- Designation: {designation}
+- Department: {department}
+- Offered Salary: {offered_salary}
+- Joining Date: {joining_date if joining_date else 'To be confirmed'}
+- Approved by: {human_action.get('actor', 'HR Manager')}
+
+Write a professional offer letter. Respond ONLY with a valid JSON object. No markdown, no code fences.
+Use exactly this structure:
+{{
+  "subject_line": "email subject line for the offer",
+  "offer_letter": "the full text of the offer letter — formal, warm, professional tone. Include all key details. 3-4 paragraphs."
+}}
+
+Rules:
+- Address the candidate by name
+- State the role, department, and salary clearly
+- Include joining date if provided
+- End with instructions to accept by signing and returning
+- Keep it under 300 words"""
+
+            message = client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=700,
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+
+            raw = message.content[0].text.strip()
+            if raw.startswith('```'):
+                raw = raw.split('```')[1]
+                if raw.startswith('json'):
+                    raw = raw[4:]
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            offer.update({
+                'offer_letter':  parsed.get('offer_letter', offer['offer_letter']),
+                'subject_line':  parsed.get('subject_line', offer['subject_line']),
+                'llm_powered':   True,
+            })
+
+            logger.info(f'[generate_offer_letter] Claude offer letter generated for {candidate_name}')
+
+        except json.JSONDecodeError as e:
+            logger.error(f'[generate_offer_letter] JSON parse failed — {e}')
+        except Exception as e:
+            logger.error(f'[generate_offer_letter] Claude call failed — {e}')
+
+        return offer
 
 
 @register_node(

@@ -160,26 +160,103 @@ class NotifyCABNode(BaseNode):
 )
 class GenerateSOC2EvidenceNode(BaseNode):
     """
-    Generates structured SOC 2 Change Management evidence record
-    from the full NodeRun + PolicyEvaluation + HumanAction chain.
+    Claude-powered SOC 2 Change Management evidence generator.
+    Produces a structured, auditor-ready evidence record
+    from the full policy + HITL decision chain.
     """
     def execute(self, input_data: dict, context: dict) -> dict:
-        title            = input_data.get('title', '')
-        risk             = input_data.get('risk_classification', '')
-        human_action     = input_data.get('human_action', {})
-        policy_results   = input_data.get('policy_results', [])
+        import os
+        import json
+        import anthropic
+
+        title          = input_data.get('title', '')
+        risk           = input_data.get('risk_classification', '')
+        human_action   = input_data.get('human_action', {})
+        policy_results = input_data.get('policy_results', [])
+        change_details = input_data.get('change_details', {})
 
         passed = sum(1 for r in policy_results if r.get('status') == 'PASS')
         failed = sum(1 for r in policy_results if r.get('status') == 'FAIL')
 
-        return {
-            'evidence_type':    'soc2_change_management',
-            'change_title':     title,
-            'risk_level':       risk,
-            'policy_summary':   {'passed': passed, 'failed': failed},
-            'cab_decision':     human_action.get('action', 'N/A'),
-            'decided_by':       human_action.get('actor', 'N/A'),
-            'justification':    human_action.get('justification', ''),
-            'run_id':           context.get('run_id', ''),
-            'status':           'complete',
+        # safe fallback
+        evidence = {
+            'evidence_type':   'soc2_change_management',
+            'change_title':    title,
+            'risk_level':      risk,
+            'policy_summary':  {'passed': passed, 'failed': failed},
+            'cab_decision':    human_action.get('action', 'N/A'),
+            'decided_by':      human_action.get('actor', 'N/A'),
+            'justification':   human_action.get('justification', ''),
+            'run_id':          context.get('run_id', ''),
+            'audit_narrative': '',
+            'control_evidence': [],
+            'llm_powered':     False,
+            'status':          'complete',
         }
+
+        try:
+            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                logger.warning('[generate_soc2_evidence] ANTHROPIC_API_KEY not set — returning fallback')
+                return evidence
+
+            client = anthropic.Anthropic(api_key=api_key)
+
+            prompt = f"""You are a SOC 2 compliance analyst writing a change management evidence record for an external auditor.
+
+Change Request Details:
+- Title: {title}
+- Risk Classification: {risk}
+- Change Details: {json.dumps(change_details, indent=2, default=str)}
+
+Policy Check Results:
+- Passed: {passed}, Failed: {failed}
+- Details: {json.dumps(policy_results, indent=2, default=str)}
+
+CAB (Change Advisory Board) Decision:
+- Action: {human_action.get('action', 'N/A')}
+- Decided by: {human_action.get('actor', 'N/A')}
+- Justification: {human_action.get('justification', '')}
+
+Workflow Run ID: {context.get('run_id', '')}
+
+Write a formal SOC 2 Change Management evidence record. Respond ONLY with a valid JSON object. No markdown, no code fences.
+Use exactly this structure:
+{{
+  "audit_narrative": "2-3 sentence formal description of the change and its approval for an auditor",
+  "control_evidence": ["evidence point 1", "evidence point 2", "evidence point 3"]
+}}
+
+Rules:
+- audit_narrative: formal auditor language, reference the change title, risk level, and decision
+- control_evidence: 2-4 specific, verifiable evidence points that demonstrate SOC 2 CC8.1 compliance
+- Be precise and factual — auditors will rely on this"""
+
+            message = client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=512,
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+
+            raw = message.content[0].text.strip()
+            if raw.startswith('```'):
+                raw = raw.split('```')[1]
+                if raw.startswith('json'):
+                    raw = raw[4:]
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            evidence.update({
+                'audit_narrative':  parsed.get('audit_narrative', ''),
+                'control_evidence': parsed.get('control_evidence', []),
+                'llm_powered':      True,
+            })
+
+            logger.info(f'[generate_soc2_evidence] Claude SOC2 evidence generated for: {title}')
+
+        except json.JSONDecodeError as e:
+            logger.error(f'[generate_soc2_evidence] JSON parse failed — {e}')
+        except Exception as e:
+            logger.error(f'[generate_soc2_evidence] Claude call failed — {e}')
+
+        return evidence

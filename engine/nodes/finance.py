@@ -153,29 +153,102 @@ class ComputeMetricsNode(BaseNode):
 )
 class GenerateReportNode(BaseNode):
     """
-    Generates a structured portfolio review report
-    from metrics, policy outcomes, and human decision.
+    Claude-powered portfolio review report generator.
+    Uses metrics, policy outcomes, and human decision to produce
+    a structured narrative report with risk summary and recommendations.
     """
     def execute(self, input_data: dict, context: dict) -> dict:
-        metrics         = input_data.get('metrics', {})
-        policy_results  = input_data.get('policy_results', [])
-        human_action    = input_data.get('human_action', {})
+        import os
+        import json
+        import anthropic
 
-        passed  = sum(1 for r in policy_results if r.get('status') == 'PASS')
-        failed  = sum(1 for r in policy_results if r.get('status') == 'FAIL')
-        warned  = sum(1 for r in policy_results if r.get('status') == 'WARN')
+        metrics        = input_data.get('metrics', {})
+        policy_results = input_data.get('policy_results', [])
+        human_action   = input_data.get('human_action', {})
 
-        return {
+        passed = sum(1 for r in policy_results if r.get('status') == 'PASS')
+        failed = sum(1 for r in policy_results if r.get('status') == 'FAIL')
+        warned = sum(1 for r in policy_results if r.get('status') == 'WARN')
+
+        # safe fallback if Claude is unavailable
+        report = {
             'report_type':    'portfolio_review',
             'total_value':    metrics.get('total_value', 0),
             'pnl':            metrics.get('pnl', 0),
             'pnl_pct':        metrics.get('pnl_pct', 0),
-            'policy_summary': {
-                'passed':  passed,
-                'warned':  warned,
-                'failed':  failed,
-            },
+            'policy_summary': {'passed': passed, 'warned': warned, 'failed': failed},
             'decision':       human_action.get('action', 'N/A'),
             'decided_by':     human_action.get('actor', 'N/A'),
+            'narrative':      '',
+            'risk_summary':   '',
+            'recommendations': [],
+            'llm_powered':    False,
             'status':         'complete',
         }
+
+        try:
+            api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+            if not api_key:
+                logger.warning('[generate_report] ANTHROPIC_API_KEY not set — returning fallback report')
+                return report
+
+            client = anthropic.Anthropic(api_key=api_key)
+
+            prompt = f"""You are a senior portfolio analyst writing a concise investment review report.
+
+Portfolio Metrics:
+{json.dumps(metrics, indent=2, default=str)}
+
+Policy Check Results:
+- Passed: {passed}
+- Warned: {warned}
+- Failed: {failed}
+Policy details: {json.dumps(policy_results, indent=2, default=str)}
+
+Human Decision:
+- Action: {human_action.get('action', 'N/A')}
+- By: {human_action.get('actor', 'N/A')}
+- Justification: {human_action.get('justification', '')}
+
+Write a structured portfolio review report. Respond ONLY with a valid JSON object. No markdown, no code fences.
+Use exactly this structure:
+{{
+  "narrative": "2-3 sentence executive summary of the portfolio review outcome",
+  "risk_summary": "1-2 sentences describing the key risk findings",
+  "recommendations": ["recommendation 1", "recommendation 2"]
+}}
+
+Rules:
+- narrative: factual, professional tone, reference actual numbers from metrics
+- risk_summary: only mention real risks from the policy results above
+- recommendations: 1-3 specific, actionable items for the portfolio manager"""
+
+            message = client.messages.create(
+                model='claude-haiku-4-5-20251001',
+                max_tokens=512,
+                messages=[{'role': 'user', 'content': prompt}]
+            )
+
+            raw = message.content[0].text.strip()
+            if raw.startswith('```'):
+                raw = raw.split('```')[1]
+                if raw.startswith('json'):
+                    raw = raw[4:]
+                raw = raw.strip()
+
+            parsed = json.loads(raw)
+            report.update({
+                'narrative':       parsed.get('narrative', ''),
+                'risk_summary':    parsed.get('risk_summary', ''),
+                'recommendations': parsed.get('recommendations', []),
+                'llm_powered':     True,
+            })
+
+            logger.info(f'[generate_report] Claude report generated for portfolio {metrics.get("portfolio_id", "")}')
+
+        except json.JSONDecodeError as e:
+            logger.error(f'[generate_report] JSON parse failed — {e}')
+        except Exception as e:
+            logger.error(f'[generate_report] Claude call failed — {e}')
+
+        return report
