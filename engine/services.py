@@ -10,14 +10,15 @@ from django.utils import timezone as dj_timezone
 
 from engine.models import (
     Agent, WorkflowTemplate, WorkflowRun,
-    AgentRun, NodeRun, MemoryPayload, DecisionPoint
+    AgentRun, NodeRun, MemoryPayload, DecisionPoint,
+    PolicyEvaluation, ToolCall
 )
 from engine.nodes import get_node
 
 logger = logging.getLogger('nexara.engine.services')
 
 
-# ─── Memory Store ─────────────────────────────────────────────────────────────
+# ── Memory Store ──────────────────────────────────────────────────────────────
 
 def store_payload(data: dict, pii_class: str = 'none') -> str:
     """
@@ -37,15 +38,13 @@ def store_payload(data: dict, pii_class: str = 'none') -> str:
     return content_hash
 
 
-# ─── Workflow Execution ───────────────────────────────────────────────────────
+# ── Workflow Execution ────────────────────────────────────────────────────────
 
 class WorkflowExecutionService:
     """
     Executes a workflow graph node-by-node.
     Each node execution is fully audited — NodeRun written for every step.
-
-    This is the in-process executor (LANGGRAPH_MODE=inprocess).
-    LangGraph integration is added on top of this in a later step.
+    PolicyEvaluation written for every node that returns a status field.
     """
 
     def __init__(self, workflow_run: WorkflowRun):
@@ -60,7 +59,8 @@ class WorkflowExecutionService:
     def execute_node(self, node_code: str, input_data: dict) -> dict:
         """
         Executes a single node, writes a NodeRun audit record,
-        and stores input/output in MemoryPayload.
+        stores input/output in MemoryPayload, and writes a
+        PolicyEvaluation record if the node returns a status field.
         Returns the node's output dict.
         """
         node_entry = get_node(node_code)
@@ -87,6 +87,41 @@ class WorkflowExecutionService:
             error        = result.get('error', ''),
         )
 
+        # ── Audit hook: PolicyEvaluation ──────────────────────────────────────
+        # Write a policy evaluation record for every node that returns a status.
+        # This gives a full compliance trail across every sector node.
+        if result['success']:
+            output = result.get('output', {})
+            node_status = output.get('status', '')
+            if node_status:
+                try:
+                    # Map node status to PolicyEvaluation result
+                    if node_status in ('PASS', 'generated', 'completed'):
+                        pe_result = PolicyEvaluation.Result.PASS
+                    elif node_status in ('FAIL',):
+                        pe_result = PolicyEvaluation.Result.FAIL
+                    elif node_status in ('REQUIRES_APPROVAL', 'NOT_ELIGIBLE'):
+                        pe_result = PolicyEvaluation.Result.WARN
+                    else:
+                        pe_result = PolicyEvaluation.Result.SKIPPED
+
+                    PolicyEvaluation.objects.create(
+                        workflow_run = self.workflow_run,
+                        node_code    = node_code,
+                        policy_code  = node_code,
+                        policy_name  = node_code.replace('_', ' ').title(),
+                        result       = pe_result,
+                        details      = {
+                            'node_status':    node_status,
+                            'missing_fields': output.get('missing_fields', []),
+                            'llm_powered':    output.get('llm_powered', False),
+                        },
+                    )
+                    logger.debug(f'[audit] PolicyEvaluation written: {node_code} → {pe_result}')
+                except Exception as e:
+                    logger.error(f'[audit] PolicyEvaluation write failed for {node_code}: {e}')
+        # ─────────────────────────────────────────────────────────────────────
+
         if not result['success']:
             logger.error(f'Node {node_code} failed: {result.get("error")}')
             raise RuntimeError(f'Node {node_code} failed: {result.get("error")}')
@@ -105,6 +140,30 @@ class WorkflowExecutionService:
             quality_signals = signals or {},
         )
 
+    def record_tool_call(self, node_code: str, tool_name: str,
+                         input_data: dict, output_data: dict,
+                         status: str = 'success', error: str = '',
+                         duration_ms: int = None):
+        """
+        Records an MCP tool invocation against this workflow run.
+        Called by the MCP server after every tool execution.
+        """
+        try:
+            ToolCall.objects.create(
+                workflow_run = self.workflow_run,
+                node_code    = node_code,
+                tool_name    = tool_name,
+                tenant       = self.tenant,
+                input_data   = input_data,
+                output_data  = output_data,
+                status       = status,
+                error        = error,
+                duration_ms  = duration_ms,
+            )
+            logger.debug(f'[audit] ToolCall written: {tool_name} [{status}]')
+        except Exception as e:
+            logger.error(f'[audit] ToolCall write failed for {tool_name}: {e}')
+
     def complete(self, output_data: dict):
         """Marks the WorkflowRun as completed."""
         self.workflow_run.status       = WorkflowRun.Status.COMPLETED
@@ -122,7 +181,7 @@ class WorkflowExecutionService:
         logger.error(f'WorkflowRun {self.workflow_run.id} failed: {error_message}')
 
 
-# ─── Agent Trigger Service ────────────────────────────────────────────────────
+# ── Agent Trigger Service ─────────────────────────────────────────────────────
 
 class AgentTriggerService:
     """
