@@ -251,4 +251,61 @@ class MemoryPayload(models.Model):
     def __str__(self):
         return f'payload:{self.content_hash[:12]} [{self.pii_class}]'
     
+    # ── Tool Call ────────────────────────────────────────────────────────────────
+
+class ToolCall(models.Model):
+    """
+    Immutable log of every MCP tool invocation.
+    One record per tool call — never updated.
+    """
+    id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='tool_calls')
+    node_code    = models.CharField(max_length=100)
+    tool_name    = models.CharField(max_length=100)
+    tenant       = models.ForeignKey(Tenant, on_delete=models.PROTECT)
+    input_data   = models.JSONField(default=dict)
+    output_data  = models.JSONField(default=dict)
+    status       = models.CharField(max_length=20, default='success')
+    error        = models.TextField(blank=True)
+    duration_ms  = models.IntegerField(null=True)
+    called_at    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'tool_calls'
+        ordering = ['called_at']
+
+    def save(self, *args, **kwargs):
+        if self._state.adding is False:
+            raise ValueError('ToolCall records are immutable and cannot be updated.')
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.tool_name} [{self.status}] in {self.workflow_run_id}'
     
+    # ── Policy Evaluation ────────────────────────────────────────────────────────
+
+class PolicyEvaluation(models.Model):
+    """
+    Records the result of every policy/compliance check run during a workflow.
+    """
+    class Result(models.TextChoices):
+        PASS    = 'PASS',    'Pass'
+        FAIL    = 'FAIL',    'Fail'
+        WARN    = 'WARN',    'Warning'
+        SKIPPED = 'SKIPPED', 'Skipped'
+
+    id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='policy_evaluations')
+    node_code    = models.CharField(max_length=100)
+    policy_code  = models.CharField(max_length=100)
+    policy_name  = models.CharField(max_length=255, blank=True)
+    result       = models.CharField(max_length=10, choices=Result.choices)
+    details      = models.JSONField(default=dict)
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'policy_evaluations'
+        ordering = ['evaluated_at']
+
+    def __str__(self):
+        return f'{self.policy_code} → {self.result} in {self.workflow_run_id}'
