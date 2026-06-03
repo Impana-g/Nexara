@@ -147,8 +147,10 @@ def submit_human_decision(request, run_id):
         "justification": "Reviewed and approved."
     }
     """
+    # Use all_objects — TenantAwareManager filters by thread-local tenant which
+    # may not be set during a direct API call from a reviewer in a different context
     try:
-        run = WorkflowRun.objects.select_related(
+        run = WorkflowRun.all_objects.select_related(
             'tenant', 'template'
         ).get(id=run_id)
     except WorkflowRun.DoesNotExist:
@@ -170,25 +172,41 @@ def submit_human_decision(request, run_id):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    HumanAction.objects.create(
-        workflow_run  = run,
-        node_code     = 'human_decision',
-        actor         = request.user.email or request.user.username,
-        action        = action,
-        reason_code   = reason_code,
-        justification = justification,
-    )
+    actor = request.user.email or request.user.username
 
-    from engine.tasks import resume_workflow_task
-    resume_workflow_task.delay(
-        workflow_run_id = str(run.id),
-        action          = action,
-        actor           = request.user.username,
-        reason_code     = reason_code,
-        justification   = justification,
-    )
+    try:
+        HumanAction.objects.create(
+            workflow_run  = run,
+            node_code     = 'human_decision',
+            actor         = actor,
+            action        = action,
+            reason_code   = reason_code,
+            justification = justification,
+        )
+    except Exception as e:
+        logger.error(f'HITL submit — HumanAction creation failed: {e}')
+        return Response(
+            {'error': 'Failed to record decision. Please try again.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
-    logger.info(f'HITL submitted — run_id={run_id} action={action} by={request.user.username}')
+    try:
+        from engine.tasks import resume_workflow_task
+        resume_workflow_task.delay(
+            workflow_run_id = str(run.id),
+            action          = action,
+            actor           = actor,
+            reason_code     = reason_code,
+            justification   = justification,
+        )
+    except Exception as e:
+        logger.error(f'HITL submit — failed to queue resume task: {e}')
+        return Response(
+            {'error': 'Decision recorded but workflow resume failed to queue. Contact support.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+    logger.info(f'HITL submitted — run_id={run_id} action={action} by={actor}')
 
     return Response({
         'run_id':  str(run.id),
