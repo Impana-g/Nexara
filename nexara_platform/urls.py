@@ -44,7 +44,7 @@ urlpatterns = [
     path('api/manufacturing/',  include('domains.manufacturing.urls')),
     path('api/retail/',         include('domains.retail.urls')),
     path('api/telecom/',        include('domains.telecom.urls')),
-    path('api/finance/',        include('domains.finance.urls')),
+    
     path('api/cybersecurity/',  include('domains.cybersecurity.urls')),
     # MCP Server
     path('mcp/',                include('mcp.urls')),

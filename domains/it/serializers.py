@@ -1,5 +1,4 @@
 # domains/it/serializers.py
-
 from rest_framework import serializers
 from .models import Vendor, SoftwareLicense, Incident, ChangeRequest
 
@@ -30,5 +29,5 @@ class IncidentSerializer(serializers.ModelSerializer):
 class ChangeRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChangeRequest
-        fields = ['id', 'title', 'description', 'change_type', 'risk_level', 'status', 'requested_by', 'scheduled_date', 'created_at', 'updated_at']
+        fields = ['id', 'title', 'description', 'affected_system', 'rollback_plan', 'deployment_window', 'risk_level', 'status', 'submitted_by', 'ingestion_batch_id', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']

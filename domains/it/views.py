@@ -41,6 +41,6 @@ class ChangeRequestViewSet(viewsets.ModelViewSet):
     serializer_class = ChangeRequestSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['change_type', 'risk_level', 'status']
-    search_fields = ['title', 'requested_by']
-    ordering_fields = ['scheduled_date', 'created_at']
+    filterset_fields = ['risk_level', 'status']
+    search_fields = ['title', 'submitted_by']
+    ordering_fields = ['deployment_window', 'created_at']
