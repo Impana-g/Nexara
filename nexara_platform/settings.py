@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     # Third-party
     'rest_framework',
     'rest_framework.authtoken',
+        'django_filters', 
     'corsheaders',
     # Nexara apps
     'core',       # multi-tenancy, auth, RBAC, Redis pub/sub

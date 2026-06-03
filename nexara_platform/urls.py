@@ -22,7 +22,27 @@ from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('',       include('core.urls')),
-    path('',       include('engine.urls')),
+    path('admin/',   admin.site.urls),
+
+    # Core: auth, tenants, users
+    path('',         include('core.urls')),
+
+    # Engine: workflow execution, HITL, SSE
+    path('',         include('engine.urls')),
+
+    # ── Domain APIs ──────────────────────────────────────────────────────────
+
+    path('api/hr/',             include('domains.hr.urls')),
+    path('api/it/',             include('domains.it.urls')),
+    path('api/healthcare/',     include('domains.healthcare.urls')),
+    path('api/education/',      include('domains.education.urls')),
+    path('api/legal/',          include('domains.legal.urls')),
+    path('api/insurance/',      include('domains.insurance.urls')),
+    path('api/energy/',         include('domains.energy.urls')),
+    path('api/government/',     include('domains.government.urls')),
+    path('api/logistics/',      include('domains.logistics.urls')),
+    path('api/manufacturing/',  include('domains.manufacturing.urls')),
+    path('api/retail/',         include('domains.retail.urls')),
+    path('api/telecom/',        include('domains.telecom.urls')),
+    path('api/cybersecurity/',  include('domains.cybersecurity.urls')),
 ]

@@ -250,3 +250,56 @@ class MemoryPayload(models.Model):
 
     def __str__(self):
         return f'payload:{self.content_hash[:12]} [{self.pii_class}]'
+    
+    # ─── Tool Call ────────────────────────────────────────────────────────────────
+
+class ToolCall(models.Model):
+    class Status(models.TextChoices):
+        SUCCESS = 'success', 'Success'
+        ERROR   = 'error',   'Error'
+        TIMEOUT = 'timeout', 'Timeout'
+
+    id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    node_run       = models.ForeignKey(NodeRun, on_delete=models.CASCADE, related_name='tool_calls')
+    tool_name      = models.CharField(max_length=100)
+    tool_version   = models.CharField(max_length=50, blank=True)
+    input_payload  = models.JSONField(default=dict)
+    output_payload = models.JSONField(default=dict)
+    status         = models.CharField(max_length=20, choices=Status.choices, default=Status.SUCCESS)
+    error_message  = models.TextField(blank=True)
+    duration_ms    = models.IntegerField(null=True, blank=True)
+    called_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'tool_calls'
+        ordering = ['called_at']
+
+    def __str__(self):
+        return f'{self.tool_name} [{self.status}] in node {self.node_run_id}'
+
+
+# ─── Policy Evaluation ────────────────────────────────────────────────────────
+
+class PolicyEvaluation(models.Model):
+    class Outcome(models.TextChoices):
+        PASS = 'pass', 'Pass'
+        FAIL = 'fail', 'Fail'
+        WARN = 'warn', 'Warn'
+        SKIP = 'skip', 'Skip'
+
+    id             = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run   = models.ForeignKey(WorkflowRun, on_delete=models.CASCADE, related_name='policy_evaluations')
+    node_code      = models.CharField(max_length=100)
+    policy_code    = models.CharField(max_length=100)
+    policy_version = models.CharField(max_length=20, default='1.0')
+    outcome        = models.CharField(max_length=20, choices=Outcome.choices)
+    evidence       = models.JSONField(default=dict)
+    rationale      = models.TextField(blank=True)
+    evaluated_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'policy_evaluations'
+        ordering = ['evaluated_at']
+
+    def __str__(self):
+        return f'{self.policy_code} → {self.outcome} in {self.workflow_run_id}'
